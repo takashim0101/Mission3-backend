@@ -1,6 +1,5 @@
 {
-  "name": "mock-interview-backend-nodejs",
-  "version": "1.0.0",
+  "name": "Mission3-backend",
   "description": "",
   "main": "server.js",
   "scripts": {
