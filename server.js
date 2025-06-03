@@ -35,8 +35,8 @@ app.post('/interview', async (req, res) => {
 
     try {
         const model = genAI.getGenerativeModel({
-            // === CRITICAL CHANGE 1: Use a supported model that is likely free-tier ===
-            model: "gemini-1.5-flash", // Changed from "gemini-pro"
+            
+            model: "gemini-1.5-flash", 
             systemInstruction: {
                 parts: [
                     { text: `You are an AI interviewer for a job titled "${jobTitle}".` },
