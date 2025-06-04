@@ -1,87 +1,33 @@
-// server.js
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const GeminiAI = require('./config/GeminiAI'); 
-const { extractTextFromStream } = require('./utils/streamHandler'); 
-const { updateHistory } = require('./utils/historyManager'); 
+const GeminiAI = require('./config/GeminiAI');
+const GeminiAIEX = require('./config/GeminiAIEX');
+const { OpenAI: OpenAIClient } = require("openai");
+const OpenAIController = require('./config/OpenAI'); // Path to your controller class
+const GeminiAIPro = require('./config/GeminiAI_1.0'); // Gemini Pro controller
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3001;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Initialize GeminiAI outside the route handler to reuse the instance
-const geminiAI = new GeminiAI(process.env.GOOGLE_API_KEY);
+const standardAI = new GeminiAI(process.env.GOOGLE_API_KEY);
+const experimentalAI = new GeminiAIEX(process.env.GOOGLE_API_KEY);
+const proAI = new GeminiAIPro(process.env.GOOGLE_API_KEY);
+const openai = new OpenAIClient({ apiKey: process.env.OPENAI_API_KEY });
 
-// Map to store conversation history and interview state
-// In a production environment, this should be a database.
-const chatHistories = new Map();
+const openaiController = new OpenAIController(openai); // instantiate your controller
 
-app.post('/interview', async (req, res) => {
-    const { sessionId, jobTitle, userResponse } = req.body;
+app.post('/interview/standard', (req, res) => standardAI.handle(req, res));
+app.post('/interview/experimental', (req, res) => experimentalAI.handle(req, res));
+app.post('/interview/chatgpt', (req, res) => openaiController.handle(req, res)); // use the class here
 
-    if (!sessionId || !jobTitle || userResponse === undefined) {
-        return res.status(400).json({ error: 'Missing sessionId, jobTitle, or userResponse' });
-    }
-
-    try {
-        // Retrieve or initialize the session data
-        let sessionData = chatHistories.get(sessionId);
-        if (!sessionData) {
-            sessionData = {
-                history: [],
-                interviewStage: 'initial', // Start with the initial stage
-                followUpCount: 0,
-                userAnswers: [], // To store user answers for feedback
-            };
-            chatHistories.set(sessionId, sessionData);
-        }
-
-        // Add the user's response to the history if it's not the initial 'start interview'
-        if (userResponse && userResponse !== "start interview") {
-            sessionData.history.push({ role: "user", text: userResponse });
-            // Collect user answers for feedback stage
-            if (sessionData.interviewStage !== 'initial' && sessionData.interviewStage !== 'pre_feedback' && sessionData.interviewStage !== 'interview_complete') {
-                 sessionData.userAnswers.push(userResponse);
-            }
-        }
-
-        // Process the interview turn using the GeminiAI class
-        const { modelResponseText, newInterviewStage, newFollowUpCount } = await geminiAI.processInterviewTurn({
-            jobTitle,
-            history: sessionData.history,
-            followUpCount: sessionData.followUpCount,
-            interviewStage: sessionData.interviewStage,
-            userAnswers: sessionData.userAnswers // Pass collected user answers
-        });
-
-        // Update session data with the new state
-        sessionData.history.push({ role: "model", text: modelResponseText });
-        sessionData.interviewStage = newInterviewStage;
-        sessionData.followUpCount = newFollowUpCount;
-
-        // You might want to update the history manager if it handles more than just simple pushes.
-        // For this example, we're directly manipulating sessionData.history.
-        // const updatedHistory = updateHistory(sessionId, chatHistories, userResponse, modelResponseText);
-
-        res.json({
-            response: modelResponseText,
-            history: sessionData.history, // Send back the updated history
-            interviewStage: newInterviewStage, // Send back the current stage
-            followUpCount: newFollowUpCount // Send back the current follow-up count
-        });
-
-    } catch (error) {
-        console.error('Error in interview process:', error);
-        res.status(500).json({ error: 'Failed to get response from AI interviewer.' });
-    }
-});
+app.post('/interview/gemini_1.0', (req, res) => proAI.handle(req, res));
 
 app.listen(port, () => {
-    console.log(`Backend server running on http://localhost:${port}`);
+  console.log(`Backend server running on http://localhost:${port}`);
 });

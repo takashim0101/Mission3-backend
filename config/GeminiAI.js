@@ -11,133 +11,71 @@ if (!apiKey) {
 class GeminiAI {
   constructor(apiKey) {
     this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-lite",
-    });
-
-    // Define interview stage configurations
-    this.interviewStages = {
-      initial: {
-        instruction: (jobTitle) =>
-          `You are an interviewer for a job titled "${jobTitle}". Your goal is to conduct a mock interview. Begin by asking the user to "Tell me about yourself." Keep your response concise and professional.`,
-        nextStage: "awaiting_first_core_question",
-        logUserAction: true, // Indicates if a "user started session" log is needed
-      },
-      awaiting_first_core_question: {
-        instruction: (jobTitle) =>
-          `You are an interviewer for a job titled "${jobTitle}". Based on the previous conversation and the user's last response, Start by saying “Nice to meet you users name”, then ask one relevant follow-up question. Ensure your question is typical for a job interview. Keep your response concise.`,
-        generationConfig: { maxOutputTokens: 200 },
-        nextStage: "asking_follow_ups",
-      },
-      asking_follow_ups: {
-        instruction: (jobTitle) =>
-          `You are an interviewer for a job titled "${jobTitle}". The candidate has just responded to your last question. Your task is to ask one relevant follow-up question. Analyze the candidate's previous response to formulate a question that probes deeper into their answer or explores a related area. Ensure your question is typical for a job interview. Keep your response concise.`,
-        generationConfig: { maxOutputTokens: 200 },
-        maxFollowUps: 2, // Maximum number of follow-ups allowed
-        nextStage: "pre_feedback", // Default next stage after follow-ups
-      },
-      pre_feedback: {
-        instruction: () =>
-          `You are a professional job interviewer. The candidate has now completed answering all interview questions. Don't ask anymore follow up questions. Your task is to acknowledge the end of the users question phase and set the expectation for feedback. Briefly thank the user, inform them you will now provide feedback after they type yes and click the submit button. Keep your response concise.`,
-        generationConfig: { maxOutputTokens: 100 },
-        nextStage: "generating_feedback",
-      },
-      generating_feedback: {
-        instruction: (jobTitle, userAnswers) =>
-          `You are a professional job interviewer and performance evaluator for a ${jobTitle}. The mock interview is complete. Review the user's answers to the questions. Here are the user's collected answers: ${userAnswers
-            .map((ans, idx) => `Question ${idx + 1} Answer: ${ans}`)
-            .join(
-              "\n- "
-            )} Provide constructive feedback on their answers and overall interview performance. Keep your feedback concise and professional, keep it under 2 paragraphs.`,
-        generationConfig: { maxOutputTokens: 500 },
-        nextStage: "interview_complete",
-      },
-      interview_complete: {
-        instruction: () =>
-          `You are a professional job interviewer. The mock interview is now officially complete, and feedback has been provided. Your task is to offer a polite closing statement. Deliver a brief and friendly conclusion to the interview session. Keep your closing concise and professional and under 2 paragraphs.`,
-        generationConfig: { maxOutputTokens: 50 },
-        // No next stage as the interview is complete
-      },
-    };
+    this.chatHistories = new Map();
   }
 
-  // HELPER to send messages to the generative model
-  async #sendModelMessage(instruction, history, generationConfig = {}) {
-    const chat = this.model.startChat({
-      history: history.map(({ role, text }) => ({
-        role,
-        parts: [{ text }],
-      })),
-      generationConfig,
+  // Setup and return chat session
+  getAIChat(jobTitle, history = []) {
+    const model = this.genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+      systemInstruction: {
+        parts: [
+          { text: `You are an AI interviewer for a job titled "${jobTitle}".` },
+          { text: `Your goal is to conduct a mock interview by asking relevant questions.` },
+          { text: `Start by asking the user to "Tell me about yourself.".` },
+          { text: `After that, ask up to 6 follow-up questions one at a time, based on the user's responses and the job title.` },
+          { text: `Ensure your questions are typical for a job interview.` },
+          { text: `Once the 6 questions are asked, provide constructive feedback on the user's answers and interview performance.` },
+          { text: `Keep your responses concise and professional.` },
+        ],
+      },
+      generationConfig: {
+        responseMimeType: "text/plain",
+      },
     });
-    // Use sendMessageStream if you want to handle streaming, otherwise sendMessage is fine
-    const apiResponse = await chat.sendMessage(instruction);
-    return apiResponse.response.text();
+
+    return model.startChat({
+      history: history.length && history[0].role === "model"
+  ? history.slice(1).map(item => ({
+      role: item.role,
+      parts: [{ text: item.text }],
+    }))
+  : history.map(item => ({
+      role: item.role,
+      parts: [{ text: item.text }],
+    }))
+    });
   }
 
-  async processInterviewTurn({
-    jobTitle,
-    history,
-    followUpCount,
-    interviewStage,
-    userAnswers,
-  }) {
-    let modelResponseText = "";
-    let newInterviewStage = interviewStage;
-    let newFollowUpCount = followUpCount;
+  // Main handler for route
+  async handle(req, res) {
+    const { sessionId, jobTitle, userResponse } = req.body;
+  console.log("🟢 Gemini Standard ROUTE HIT");
+  console.log("BODY RECEIVED:", req.body);
 
-    const currentStageConfig = this.interviewStages[interviewStage];
-
-    if (!currentStageConfig) {
-      console.warn(`Unknown interview stage: ${interviewStage}`);
-      return {
-        modelResponseText: "An error occurred.",
-        newInterviewStage,
-        newFollowUpCount,
-      };
+    if (!sessionId || !jobTitle || userResponse === undefined) {
+      return res.status(400).json({ error: "Missing sessionId, jobTitle, or userResponse" });
     }
 
-    const instructionToAI = currentStageConfig.instruction(
-      jobTitle,
-      userAnswers
-    );
+    try {
+      const history = this.chatHistories.get(sessionId) || [];
+      const chat = this.getAIChat(jobTitle, history);
 
-    // Initial stage needs to send the instruction and not include userResponse as history
-    if (interviewStage === "initial") {
-      modelResponseText = await this.#sendModelMessage(instructionToAI, []); // No history for initial prompt
-    } else if (
-      interviewStage === "asking_follow_ups" &&
-      newFollowUpCount >= currentStageConfig.maxFollowUps
-    ) {
-      // If maximum follow-ups reached, transition to next stage without sending a new message
-      newInterviewStage = currentStageConfig.nextStage;
-      // No model response here, as we're transitioning
-      return { modelResponseText: "", newInterviewStage, newFollowUpCount };
-    } else {
-      modelResponseText = await this.#sendModelMessage(
-        instructionToAI,
-        history,
-        currentStageConfig.generationConfig
-      );
+      const apiResponse = await chat.sendMessageStream(userResponse || "start interview");
+
+      // === CRITICAL CHANGE 2: Robust text extraction from chunk ===
+      const { extractTextFromStream } = require("../utils/streamHandler");
+      const fullResponse = await extractTextFromStream(apiResponse);
+
+      const { updateHistory } = require("../utils/historyManager");
+      const updatedHistory = updateHistory(sessionId, this.chatHistories, userResponse, fullResponse);
+
+      res.json({ response: fullResponse, history: updatedHistory });
+
+    } catch (error) {
+      console.error("Error calling Gemini API (Standard):", error);
+      res.status(500).json({ error: "Failed to get response from AI interviewer." });
     }
-
-    // Update state based on the current stage
-    if (interviewStage === "initial") {
-      newInterviewStage = currentStageConfig.nextStage;
-      newFollowUpCount = 0;
-    } else if (interviewStage === "awaiting_first_core_question") {
-      newInterviewStage = currentStageConfig.nextStage;
-      newFollowUpCount = 0; // Reset or ensure 0 for the start of follow-ups
-    } else if (interviewStage === "asking_follow_ups") {
-      newFollowUpCount++;
-      if (newFollowUpCount >= currentStageConfig.maxFollowUps) {
-        newInterviewStage = currentStageConfig.nextStage;
-      }
-    } else if (currentStageConfig.nextStage) {
-      newInterviewStage = currentStageConfig.nextStage;
-    }
-
-    return { modelResponseText, newInterviewStage, newFollowUpCount };
   }
 }
 
