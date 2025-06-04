@@ -36,10 +36,13 @@ function getAIChat(jobTitle, history = []) {
   });
 
   return model.startChat({
-    history: history.map((item) => ({
-      role: item.role,
-      parts: [{ text: item.text }],
-    })),
+    history: history
+  .filter((item, index) => !(index === 0 && item.role === "model"))
+  .map(item => ({
+    role: item.role,
+    parts: [{ text: item.text }]
+  }))
+,
   });
 }
 
