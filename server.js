@@ -1,49 +1,33 @@
-// server.js
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const { getAIChat } = require('./config/GeminiAI');
-const { extractTextFromStream } = require('./utils/streamHandler');
-const { updateHistory } = require('./utils/historyManager');
+const GeminiAI = require('./config/GeminiAI');
+const GeminiAIEX = require('./config/GeminiAIEX');
+const { OpenAI: OpenAIClient } = require("openai");
+const OpenAIController = require('./config/OpenAI'); // Path to your controller class
+const GeminiAIPro = require('./config/GeminiAI_1.0'); // Gemini Pro controller
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3001;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Map to store conversation history (simple example, use a database in production)
-const chatHistories = new Map();
+const standardAI = new GeminiAI(process.env.GOOGLE_API_KEY);
+const experimentalAI = new GeminiAIEX(process.env.GOOGLE_API_KEY);
+const proAI = new GeminiAIPro(process.env.GOOGLE_API_KEY);
+const openai = new OpenAIClient({ apiKey: process.env.OPENAI_API_KEY });
 
-app.post('/interview', async (req, res) => {
-    const { sessionId, jobTitle, userResponse } = req.body;
+const openaiController = new OpenAIController(openai); // instantiate your controller
 
-    if (!sessionId || !jobTitle || userResponse === undefined) {
-        return res.status(400).json({ error: 'Missing sessionId, jobTitle, or userResponse' });
-    }
+app.post('/interview/standard', (req, res) => standardAI.handle(req, res));
+app.post('/interview/experimental', (req, res) => experimentalAI.handle(req, res));
+app.post('/interview/chatgpt', (req, res) => openaiController.handle(req, res)); // use the class here
 
-    try {
-        const history = chatHistories.get(sessionId) || [];
-        const chat = getAIChat(jobTitle, history);
-
-        const apiResponse = await chat.sendMessageStream(userResponse || "start interview");
-
-        // === CRITICAL CHANGE 2: Robust text extraction from chunk ===
-        const fullResponse = await extractTextFromStream(apiResponse);
-
-        const updatedHistory = updateHistory(sessionId, chatHistories, userResponse, fullResponse);
-
-        res.json({ response: fullResponse, history: updatedHistory });
-
-    } catch (error) {
-        console.error('Error calling Gemini API:', error);
-        res.status(500).json({ error: 'Failed to get response from AI interviewer.' });
-    }
-});
+app.post('/interview/gemini_1.0', (req, res) => proAI.handle(req, res));
 
 app.listen(port, () => {
-    console.log(`Backend server running on http://localhost:${port}`);
+  console.log(`Backend server running on http://localhost:${port}`);
 });
