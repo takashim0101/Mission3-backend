@@ -8,22 +8,25 @@ if (!apiKey) {
 }
 
 class GeminiAIEX {
+  // Static constant for stages where user answers shouldn't be logged to userAnswers array
+  static STAGES_TO_EXCLUDE_USER_ANSWERS = [
+    "initial",
+    "pre_feedback",
+    "generating_feedback",
+    "interview_complete",
+  ];
+
   constructor(apiKey) {
     this.genAI = new GoogleGenerativeAI(apiKey);
     this.model = this.genAI.getGenerativeModel({
       model: "gemini-2.0-flash-lite",
     });
-
-    // Store chat sessions in memory
     this.chatHistories = new Map();
-
-    // Interview stages config
     this.interviewStages = {
       initial: {
         instruction: (jobTitle) =>
           `You are an interviewer for a job titled "${jobTitle}". Your goal is to conduct a mock interview. Begin by asking the user to "Tell me about yourself and why should we hire you." Keep your response concise and professional.`,
         nextStage: "awaiting_first_core_question",
-        logUserAction: true,
       },
       awaiting_first_core_question: {
         instruction: (jobTitle) =>
@@ -48,7 +51,9 @@ class GeminiAIEX {
         instruction: (jobTitle, userAnswers) =>
           `You are a professional job interviewer and performance evaluator for a ${jobTitle}. The mock interview is complete. Review the user's answers to the questions. Here are the user's collected answers: ${userAnswers
             .map((ans, idx) => `Question ${idx + 1} Answer: ${ans}`)
-            .join("\n- ")} Provide constructive feedback on their answers and overall interview performance. Keep your feedback concise and professional, keep it under 2 paragraphs.`,
+            .join(
+              "\n- "
+            )} Provide constructive feedback on their answers and overall interview performance. Keep your feedback concise and professional, keep it under 2 paragraphs.`,
         generationConfig: { maxOutputTokens: 500 },
         nextStage: "interview_complete",
       },
@@ -61,19 +66,18 @@ class GeminiAIEX {
   }
 
   async #sendModelMessage(instruction, history, generationConfig = {}) {
-    const safeHistory = history.filter((msg, idx) => !(idx === 0 && msg.role === "model"));
-
-const chat = this.model.startChat({
-  history: safeHistory.map(({ role, text }) => ({
-    role,
-    parts: [{ text }],
-  })),
-  generationConfig,
-});
-
-
-    const apiResponse = await chat.sendMessage(instruction);
-    return apiResponse.response.text();
+    const safeHistory = history.filter(
+      (msg, idx) => !(idx === 0 && msg.role === "model")
+    );
+    const chat = this.model.startChat({
+      history: safeHistory.map(({ role, text }) => ({
+        role,
+        parts: [{ text }],
+      })),
+      generationConfig,
+    });
+    const result = await chat.sendMessage(instruction);
+    return result.response.text();
   }
 
   async processInterviewTurn({
@@ -83,17 +87,13 @@ const chat = this.model.startChat({
     interviewStage,
     userAnswers,
   }) {
-    let modelResponseText = "";
-    let newInterviewStage = interviewStage;
-    let newFollowUpCount = followUpCount;
-
     const currentStageConfig = this.interviewStages[interviewStage];
     if (!currentStageConfig) {
       console.warn(`Unknown interview stage: ${interviewStage}`);
       return {
-        modelResponseText: "An error occurred.",
-        newInterviewStage,
-        newFollowUpCount,
+        modelResponseText: "An error occurred (unknown stage).",
+        newInterviewStage: interviewStage,
+        newFollowUpCount: followUpCount,
       };
     }
 
@@ -101,52 +101,55 @@ const chat = this.model.startChat({
       jobTitle,
       userAnswers
     );
+    let modelResponseText = "";
 
-    if (interviewStage === "initial") {
-      modelResponseText = await this.#sendModelMessage(instructionToAI, []);
-    } else if (
+    if (
       interviewStage === "asking_follow_ups" &&
-      newFollowUpCount >= currentStageConfig.maxFollowUps
+      followUpCount >= currentStageConfig.maxFollowUps
     ) {
-      newInterviewStage = currentStageConfig.nextStage;
-      return { modelResponseText: "", newInterviewStage, newFollowUpCount };
-    } else {
-      modelResponseText = await this.#sendModelMessage(
-        instructionToAI,
-        history,
-        currentStageConfig.generationConfig
-      );
+      return {
+        modelResponseText: "",
+        newInterviewStage: currentStageConfig.nextStage,
+        newFollowUpCount: followUpCount,
+      };
     }
 
-    // Stage state management
-    if (interviewStage === "initial") {
-      newInterviewStage = currentStageConfig.nextStage;
-      newFollowUpCount = 0;
-    } else if (interviewStage === "awaiting_first_core_question") {
-      newInterviewStage = currentStageConfig.nextStage;
+    modelResponseText = await this.#sendModelMessage(
+      instructionToAI,
+      interviewStage === "initial" ? [] : history,
+      currentStageConfig.generationConfig || {}
+    );
+
+    let newInterviewStage = currentStageConfig.nextStage || interviewStage;
+    let newFollowUpCount = followUpCount;
+
+    if (
+      interviewStage === "initial" ||
+      interviewStage === "awaiting_first_core_question"
+    ) {
       newFollowUpCount = 0;
     } else if (interviewStage === "asking_follow_ups") {
-      newFollowUpCount++;
+      newFollowUpCount = followUpCount + 1;
       if (newFollowUpCount >= currentStageConfig.maxFollowUps) {
         newInterviewStage = currentStageConfig.nextStage;
+      } else {
+        newInterviewStage = interviewStage;
       }
-    } else if (currentStageConfig.nextStage) {
-      newInterviewStage = currentStageConfig.nextStage;
     }
-
     return { modelResponseText, newInterviewStage, newFollowUpCount };
   }
 
-  // 🔥 MAIN HANDLER FOR SERVER.JS 🔥
   async handle(req, res) {
-  console.log("🟣 Gemini Experimental ROUTE HIT");
-  console.log("BODY RECEIVED:", req.body);
+    // For debugging
+    // console.log("🟣 GeminiAIEX Route Hit | Session:", req.body.sessionId, "| Stage:", this.chatHistories.get(req.body.sessionId)?.interviewStage, "| User Response:", req.body.userResponse);
 
-  const { sessionId, jobTitle, userResponse } = req.body;
+    const { sessionId, jobTitle, userResponse } = req.body;
 
-  if (!sessionId || !jobTitle || userResponse === undefined) {
-    return res.status(400).json({ error: "Missing sessionId, jobTitle, or userResponse" });
-  }
+    if (!sessionId || !jobTitle || userResponse === undefined) {
+      return res
+        .status(400)
+        .json({ error: "Missing sessionId, jobTitle, or userResponse." });
+    }
 
     try {
       let session = this.chatHistories.get(sessionId);
@@ -162,39 +165,42 @@ const chat = this.model.startChat({
 
       if (userResponse !== "start interview") {
         session.history.push({ role: "user", text: userResponse });
-
         if (
-          session.interviewStage !== "initial" &&
-          session.interviewStage !== "pre_feedback" &&
-          session.interviewStage !== "interview_complete"
+          !GeminiAIEX.STAGES_TO_EXCLUDE_USER_ANSWERS.includes(
+            session.interviewStage
+          )
         ) {
           session.userAnswers.push(userResponse);
         }
       }
 
-      const result = await this.processInterviewTurn({
+      // Prepare arguments for processInterviewTurn
+      const turnArgs = {
         jobTitle,
         history: session.history,
         followUpCount: session.followUpCount,
         interviewStage: session.interviewStage,
         userAnswers: session.userAnswers,
-      });
+      };
+      const { modelResponseText, newInterviewStage, newFollowUpCount } =
+        await this.processInterviewTurn(turnArgs);
 
-      if (result.modelResponseText) {
-        session.history.push({ role: "model", text: result.modelResponseText });
+      if (modelResponseText) {
+        session.history.push({ role: "model", text: modelResponseText });
       }
 
-      session.interviewStage = result.newInterviewStage;
-      session.followUpCount = result.newFollowUpCount;
+      // Update session state directly
+      session.interviewStage = newInterviewStage;
+      session.followUpCount = newFollowUpCount;
 
       res.json({
-        response: result.modelResponseText,
+        response: modelResponseText,
         history: session.history,
-        interviewStage: result.newInterviewStage,
-        followUpCount: result.newFollowUpCount,
+        interviewStage: newInterviewStage,
+        followUpCount: newFollowUpCount,
       });
     } catch (err) {
-      console.error("GeminiAIEX error:", err);
+      console.error("GeminiAIEX handle error:", err.message, err.stack); // More detailed error logging
       res.status(500).json({ error: "Failed to process interview." });
     }
   }
