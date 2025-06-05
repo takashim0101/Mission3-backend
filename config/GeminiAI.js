@@ -6,6 +6,7 @@ const API_KEY = process.env.GOOGLE_API_KEY;
 
 if (!API_KEY) {
   console.error("CRITICAL ERROR: GOOGLE_API_KEY is not set in .env. AI features will not work.");
+
   process.exit(1);
 }
  

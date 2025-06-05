@@ -1,5 +1,5 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-
+ 
 class GeminiAI_1_0 {
   constructor(apiKey) {
     // Check if the API key is provided
@@ -71,7 +71,7 @@ class GeminiAI_1_0 {
       throw new Error("Failed to initialize Gemini 1.5 model.");
     }
   }
-
+ 
   updateHistory(sessionId, userInput, modelReply) {
     // Get the current chat history for the session
     const history = this.chatHistories.get(sessionId) || [];
@@ -90,7 +90,7 @@ class GeminiAI_1_0 {
     this.chatHistories.set(sessionId, history);
     return history; // Return the updated history
   }
-
+ 
   async handle(req, res) {
     const { sessionId, jobTitle, userResponse } = req.body;
 
@@ -98,7 +98,7 @@ class GeminiAI_1_0 {
     if (!sessionId || !jobTitle || userResponse === undefined || userResponse === null) {
       return res.status(400).json({ error: 'Missing sessionId, jobTitle, or userResponse.' });
     }
-
+ 
     try {
       // Get the current history for the session
       let history = this.chatHistories.get(sessionId) || [];
@@ -108,6 +108,7 @@ class GeminiAI_1_0 {
         history.push({ role: "user", text: userResponse || "start interview" });
       }
 
+
       console.log("SESSION:", sessionId);
       console.log("HISTORY:", JSON.stringify(history, null, 2));
 
@@ -115,6 +116,7 @@ class GeminiAI_1_0 {
       const chat = this.getAIChat(jobTitle, history); // Passed jobTitle here
       const result = await chat.sendMessage(userResponse); // Send user response to the AI
       const fullResponse = result.response.text(); // Get the AI's response
+
 
       // Update the chat history with the new messages
       const updatedHistory = this.updateHistory(sessionId, userResponse, fullResponse);
@@ -127,5 +129,5 @@ class GeminiAI_1_0 {
   }
 }
 
-module.exports = GeminiAI_1_0; // Export the class for use in other modules
 
+module.exports = GeminiAI_1_0; // Export the class for use in other modules
