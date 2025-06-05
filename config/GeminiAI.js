@@ -1,9 +1,11 @@
+// C:\Level 5\Mission3_team\Mission3-backend\config\GeminiAI.js
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 require("dotenv").config();
 
 const API_KEY = process.env.GOOGLE_API_KEY;
+
 if (!API_KEY) {
-  console.error("GOOGLE_API_KEY is not set in .env");
+  console.error("CRITICAL ERROR: GOOGLE_API_KEY is not set in .env. AI features will not work.");
   process.exit(1);
 }
 
