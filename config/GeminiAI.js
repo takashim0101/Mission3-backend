@@ -19,13 +19,26 @@ class GeminiAI {
       model: "gemini-2.0-flash",
       systemInstruction: {
         parts: [
-          { text: `You are an AI interviewer for a job titled "${jobTitle}".` },
-          { text: `Your goal is to conduct a mock interview by asking relevant questions.` },
+          {
+            text: `You are a professional AI interviewer for a job titled "${jobTitle}".`,
+          },
+          {
+            text: `Your goal is to conduct a mock interview by asking relevant questions.`,
+          },
           { text: `Start by asking the user to "Tell me about yourself.".` },
-          { text: `After that, ask up to 6 follow-up questions one at a time, based on the user's responses and the job title.` },
+          {
+            text: `After that, ask up to 6 follow-up questions one at a time, based on the user's responses and reelevant to the job title.`,
+          },
+          {
+            text: `Make sure each question reflects real-world interview expectations for the job, testing both technical and behavioral skills.`,
+          },
           { text: `Ensure your questions are typical for a job interview.` },
-          { text: `Once the 6 questions are asked, provide constructive feedback on the user's answers and interview performance.` },
-          { text: `Keep your responses concise and professional.` },
+          {
+            text: `Once the 6 questions are asked, provide constructive feedback on the user's answers and interview performance and also give a rating out of 10.`,
+          },
+          {
+            text: `Keep your responses concise and professional. Use a friendly, supportive tone similar to an experienced interviewer who wants the candidate to succeed.`,
+          },
         ],
       },
       generationConfig: {
@@ -34,46 +47,57 @@ class GeminiAI {
     });
 
     return model.startChat({
-      history: history.length && history[0].role === "model"
-  ? history.slice(1).map(item => ({
-      role: item.role,
-      parts: [{ text: item.text }],
-    }))
-  : history.map(item => ({
-      role: item.role,
-      parts: [{ text: item.text }],
-    }))
+      history:
+        history.length && history[0].role === "model"
+          ? history.slice(1).map((item) => ({
+              role: item.role,
+              parts: [{ text: item.text }],
+            }))
+          : history.map((item) => ({
+              role: item.role,
+              parts: [{ text: item.text }],
+            })),
     });
   }
 
   // Main handler for route
   async handle(req, res) {
     const { sessionId, jobTitle, userResponse } = req.body;
-  console.log("🟢 Gemini Standard ROUTE HIT");
-  console.log("BODY RECEIVED:", req.body);
+    console.log("🟢 Gemini Standard ROUTE HIT");
+    console.log("BODY RECEIVED:", req.body);
 
     if (!sessionId || !jobTitle || userResponse === undefined) {
-      return res.status(400).json({ error: "Missing sessionId, jobTitle, or userResponse" });
+      return res
+        .status(400)
+        .json({ error: "Missing sessionId, jobTitle, or userResponse" });
     }
 
     try {
       const history = this.chatHistories.get(sessionId) || [];
       const chat = this.getAIChat(jobTitle, history);
 
-      const apiResponse = await chat.sendMessageStream(userResponse || "start interview");
+      const apiResponse = await chat.sendMessageStream(
+        userResponse || "start interview"
+      );
 
       // === CRITICAL CHANGE 2: Robust text extraction from chunk ===
       const { extractTextFromStream } = require("../utils/streamHandler");
       const fullResponse = await extractTextFromStream(apiResponse);
 
       const { updateHistory } = require("../utils/historyManager");
-      const updatedHistory = updateHistory(sessionId, this.chatHistories, userResponse, fullResponse);
+      const updatedHistory = updateHistory(
+        sessionId,
+        this.chatHistories,
+        userResponse,
+        fullResponse
+      );
 
       res.json({ response: fullResponse, history: updatedHistory });
-
     } catch (error) {
       console.error("Error calling Gemini API (Standard):", error);
-      res.status(500).json({ error: "Failed to get response from AI interviewer." });
+      res
+        .status(500)
+        .json({ error: "Failed to get response from AI interviewer." });
     }
   }
 }
