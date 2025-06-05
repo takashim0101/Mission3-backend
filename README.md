@@ -42,7 +42,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 Running Your Project- Start your server:
 node index.js
-- Open your browser and visit: http://localhost:3000/
+- Open your browser and visit: http://localhost:3001/
 You should see: "Hello, AI-powered world!"
 
 
