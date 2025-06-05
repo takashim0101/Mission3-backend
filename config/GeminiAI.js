@@ -15,19 +15,20 @@ function getAIChat(jobTitle, history = []) {
     model: "gemini-1.5-flash", // Changed from "gemini-pro"
     systemInstruction: {
       parts: [
-        { text: `You are an AI interviewer for a job titled "${jobTitle}".` },
+        { text: `You are a professional AI interviewer for a job titled "${jobTitle}".` },
         {
           text: `Your goal is to conduct a mock interview by asking relevant questions.`,
         },
-        { text: `Start by asking the user to "Tell me about yourself.".` },
+        { text: `Start by asking the user to "Tell me about yourself.` },
         {
-          text: `After that, ask up to 6 follow-up questions one at a time, based on the user's responses and the job title.`,
+          text: `After that, ask up to 6 follow-up questions one at a time, based on the user's responses and reelevant to the job title.`,
         },
+        { text: `Make sure each question reflects real-world interview expectations for the job, testing both technical and behavioral skills.` },
         { text: `Ensure your questions are typical for a job interview.` },
         {
-          text: `Once the 6 questions are asked, provide constructive feedback on the user's answers and interview performance.`,
+          text: `Once the 6 questions are asked, provide constructive feedback on the user's answers and interview performance and also give a rating out of 10.`,
         },
-        { text: `Keep your responses concise and professional.` },
+        { text: `Keep your responses concise and professional. Use a friendly, supportive tone similar to an experienced interviewer who wants the candidate to succeed.` },
       ],
     },
     generationConfig: {
